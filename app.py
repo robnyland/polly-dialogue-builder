@@ -1,9 +1,5 @@
 import streamlit as st, boto3, io, os
-from pydub import AudioSegment
-from pydub.utils import which
-
-# Fix for ffmpeg not being found
-AudioSegment.converter = which("ffmpeg")
+from tempfile import NamedTemporaryFile
 
 # ── Polly helper ─────────────────────────────────────────────────────
 @st.cache_resource
@@ -18,17 +14,17 @@ def get_polly_and_voices():
     return polly, voices
 
 def synth_line(polly, text, voice, engine, sample_rate):
-    audio = polly.synthesize_speech(
+    response = polly.synthesize_speech(
         Text=text,
         VoiceId=voice,
         Engine=engine,
         OutputFormat="mp3",
         SampleRate=sample_rate,
-    )["AudioStream"].read()
-    return AudioSegment.from_file_using_temporary_files(io.BytesIO(audio))
+    )
+    return response['AudioStream'].read()
 
 # ── App UI ───────────────────────────────────────────────────────────
-st.title("🗣️ Polly Generative Dialogue Builder")
+st.title("🗣️ Polly Dialogue Builder")
 
 try:
     polly, all_voices = get_polly_and_voices()
@@ -115,26 +111,28 @@ if len(st.session_state.speakers) < 20 and st.button("➕ Add speaker"):
 
 # ── Generate button ────────────────────────────────────────────────
 if st.button("Generate ▶️", type="primary"):
-    segments = []
+    audio_chunks = []
+
     for sp in st.session_state.speakers:
         for line in sp["lines"].splitlines():
             if line := line.strip():
                 try:
-                    segments.append(synth_line(polly, line, sp["voice"], voice_quality, sample_rate))
+                    audio_chunks.append(synth_line(polly, line, sp["voice"], voice_quality, sample_rate))
                 except Exception as e:
                     st.error(f"Polly error with voice “{sp['voice']}” → {e}")
                     st.stop()
         if sp["pause"]:
-            segments.append(AudioSegment.silent(duration=sp["pause"]))
+            # generate silent MP3 bytes (1 sec = 22050 bytes @ ~22kbps)
+            silence_ms = sp["pause"]
+            silence_bytes = b'\0' * int(22050 * (silence_ms / 1000))
+            audio_chunks.append(silence_bytes)
 
-    if not segments:
+    if not audio_chunks:
         st.warning("No dialogue to synthesise.")
     else:
-        convo = segments[0]
-        for seg in segments[1:]:
-            convo += seg
-        buf = io.BytesIO()
-        convo.export(buf, format="mp3")
-        st.audio(buf.getvalue(), format="audio/mp3")
-        st.download_button("💾 Download MP3", buf,
-                           file_name="dialogue.mp3", mime="audio/mpeg")
+        with NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+            for chunk in audio_chunks:
+                tmp.write(chunk)
+            tmp.seek(0)
+            st.audio(tmp.name, format="audio/mp3")
+            st.download_button("💾 Download MP3", tmp, file_name="dialogue.mp3", mime="audio/mpeg")
