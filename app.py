@@ -1,5 +1,9 @@
 import streamlit as st, boto3, io, os
 from pydub import AudioSegment
+from pydub.utils import which
+
+# Fix for ffmpeg not being found
+AudioSegment.converter = which("ffmpeg")
 
 # ── Polly helper ─────────────────────────────────────────────────────
 @st.cache_resource
