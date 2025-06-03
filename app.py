@@ -135,4 +135,9 @@ if st.button("Generate ▶️", type="primary"):
                 tmp.write(chunk)
             tmp.seek(0)
             st.audio(tmp.name, format="audio/mp3")
-            st.download_button("💾 Download MP3", tmp, file_name="dialogue.mp3", mime="audio/mpeg")
+
+            # Read and pass bytes to download button
+            with open(tmp.name, "rb") as f:
+                mp3_bytes = f.read()
+            st.download_button("💾 Download MP3", mp3_bytes, file_name="dialogue.mp3", mime="audio/mpeg")
+
